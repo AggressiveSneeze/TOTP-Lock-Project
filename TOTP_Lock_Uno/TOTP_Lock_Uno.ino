@@ -53,7 +53,16 @@ red LED -ve to 330ohhm resister
 
 //#include <JeeLib.h> // Low power functions library
 
+
+//my questions:
+
+// is serial for stdin/out? are you simulating using the ide?
+//
+
 //ISR(WDT_vect) { Sleepy::watchdogEvent(); } // Initialize the watchdog
+
+
+
 
 // --CONSTANTS------------------
 // ----KEYBOARD
@@ -70,6 +79,10 @@ byte rowPins[ROWS] = {9,8,7,6}; //connect to the row pinouts of the keypad
 byte colPins[COLS] = {10,11,12}; //connect to the column pinouts of the keypad 
                                  //(pin 12 to the outside of the 3 slots in the pad)
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+
+
+
 
 // ----TIME
 const bool LOWPOWER = true;         // set to true to enable low-power sleeping
@@ -95,7 +108,7 @@ unsigned long blinkStart = 0;       // will store the time that the LED started 
 unsigned long solenoidStart = 0;    // will store the time that the solenoid opened
 unsigned long lastKeyPress = 0;     // will store last time a key was pressed
 char key = 0;
-char* totpCode;                     // calculated TOPTP code
+//char totpCode;                     // calculated TOPTP code
 char inputCode[7];                  // the code entered (zero indexed - so holds 8 data points in total)
 unsigned int inputCode_idx;         // counter for length of the input code
 TOTP totp = TOTP(hmacKey, 10);      // note that "MyLegoDoor" has 10 characters.
@@ -106,6 +119,9 @@ TOTP totp = TOTP(hmacKey, 10);      // note that "MyLegoDoor" has 10 characters.
 void setup() {
   Serial.begin(9600);
   Serial.println("Starting Prototype_12-2-2015.ino");
+  
+  //to communicate with the rtc?
+  
   Wire.begin();
 
 //this section first sets the system time (maintained by the Time library) to
@@ -216,6 +232,7 @@ void keypadEvent(KeypadEvent key){    // handler for the Keypad
 }
 
 //========================================
+//just for lights
 
 void blinkHandler() {
   if (blin2){
@@ -256,22 +273,51 @@ void codeChecker() {
 
   //DateTime now = RTC.get();  // Read the current time and store it
   long GMT = RTC.get();
-  totpCode = totp.getCode(GMT);
-  Serial.print("TOTP code is: ");
-  Serial.println(totpCode);
+  long pre = GMT-30;
+  long post = GMT+30;
+
+  //Can delete for production.
+  Serial.print("Current TOTP code is: ");
+  Serial.println(totp.getCode(GMT));
+  Serial.print("Previous TOTP code is: ");
+  Serial.println(totp.getCode(pre));
+  Serial.print("Next TOTP code is: ");
+  Serial.println(totp.getCode(post));
+  //
   
-  if(strcmp(inputCode, totpCode) == 0) {      // totp code is correct
-    Serial.println("Code was correct! Solenoid opened");
-    digitalWrite(solenoidPin,HIGH);
-    solenoidStart = millis();
-    solenoidOpen = true;
+
+  //code is correct
+  if(strcmp(inputCode, totp.getCode(GMT)) == 0)
+  {      
+    Serial.println("Using the current code!");
+    openSolenoid();
   }
+
+  else if(strcmp(inputCode, totp.getCode(pre)) == 0) {
+    Serial.println("Using the previous code!");
+    openSolenoid();
+  }
+
+  else if(strcmp(inputCode, totp.getCode(post)) == 0) {
+    Serial.println("Using the coming code!");
+    openSolenoid();
+  }
+
+  //code is not correct
   else {                                      // totp code is incorrect
     Serial.println("Wrong code entered");
     Serial.println();
     blinkStart = millis();
     blin2 = true;
-  }
+  } 
+}
+
+
+void openSolenoid() {
+    Serial.println("Code was correct! Solenoid opened");
+    digitalWrite(solenoidPin,HIGH);
+    solenoidStart = millis();
+    solenoidOpen = true;
 }
 
 void kpDelayHandler() {  // monitor last time a key was pressed. Reset if too long ago.
