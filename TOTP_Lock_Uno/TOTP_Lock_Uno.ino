@@ -10,7 +10,7 @@ FIXED:
 - investigate what happens if currentMillis() rolls over (pretty sure nothing because it is unsigned)
 - introduce watchdog timer to save battery
 - introduce a way to change the shared key
-- give a longer time for the code to work (increase the totp period)
+- give a longer time for the code to work (increase the totp period) No worries, prev/post code work now. 
 - currently reading the RTC time twice during codeChecker - once inside printTheTime() and once in codeChecker().
   Two reads in quick succession like this may be contributing to clock drift... maybe fix so only required once?
 - one-time use code (don't allow repeat-use?)
@@ -55,10 +55,6 @@ red LED -ve to 330ohhm resister
 
 
 //my questions:
-
-// is serial for stdin/out? are you simulating using the ide?
-//
-
 //ISR(WDT_vect) { Sleepy::watchdogEvent(); } // Initialize the watchdog
 
 
@@ -112,6 +108,11 @@ char key = 0;
 char inputCode[7];                  // the code entered (zero indexed - so holds 8 data points in total)
 unsigned int inputCode_idx;         // counter for length of the input code
 TOTP totp = TOTP(hmacKey, 10);      // note that "MyLegoDoor" has 10 characters.
+boolean change_mode = false;  //if user has tried to get into change mode
+unsigned long change_mode_timer = 0; //time since change mode entered
+boolean verified_change_mode=false;  //if user has successfully entered change mode. 
+char inputKey[10];    //new key entered
+unsigned int inputKey_idx; // counter for length of new key. 
 
 
 //========================================
@@ -158,6 +159,11 @@ void loop() {
     kpDelayHandler();
     blinkHandler();
     solenoidHandler();
+
+    //TODO need to add handler to reset timer/change_mode.
+
+    //TODO need to worry about LEDs for change_mode.
+    
 //  }
 }
 
@@ -196,16 +202,36 @@ void keypadEvent(KeypadEvent key){    // handler for the Keypad
           blinkStart = millis();
           blin2 = true;
         break;
+        case '#':
+          digitalWrite(ledPinY,!digitalRead(ledPinY));
+          Serial.println();
+          Serial.println("Change password mode entered, please enter the OTP");
+          change_mode=true;
+          change_mode_timer=millis();
         default: // all other keys than *
           if (!blin2 && !solenoidOpen) {
+            //changes yellow to on/off.
             digitalWrite(ledPinY,!digitalRead(ledPinY));
             Serial.print(key);
-            inputCode[inputCode_idx++] = key;  //save key value in input buffer
-            // if the buffer is full, add string terminator, reset the index, then call codeChecker
-            if(inputCode_idx == 6) {
-              inputCode[inputCode_idx] = '\0';
-              inputCode_idx = 0;
-              codeChecker();
+            if (!verified_change_mode) {
+              inputCode[inputCode_idx++] = key;  //save key value in input buffer
+              // if the buffer is full, add string terminator, reset the index, then call codeChecker
+              if(inputCode_idx == 6) {
+                inputCode[inputCode_idx] = '\0';
+                inputCode_idx = 0;
+                codeChecker();
+              }
+            }
+            else {
+              //we're in change mode here. let's try get a 10 digit key:
+              inputKey[inputKey_idx++] = key;  //save key value in input buffer
+              // if the buffer is full, add string terminator, reset the index, then call codeChecker
+              if(inputCode_idx == 10) {
+                inputCode[inputCode_idx] = '\0';
+                inputCode_idx = 0;
+                //set up new key now:
+                setNewKey();
+              }           
             }
           }
           else {
@@ -221,6 +247,7 @@ void keypadEvent(KeypadEvent key){    // handler for the Keypad
           //don't do anything to this key
         break;
         default:
+        //turns off both lights
           digitalWrite(ledPinY, LOW);
           digitalWrite(ledPinR, LOW);
       }
@@ -267,6 +294,7 @@ void solenoidHandler() {
 //========================================
 
 void codeChecker() {
+  boolean code_correct=false;
   printTheTime(); 
   Serial.print("Code entered was: ");
   Serial.println(inputCode);
@@ -289,18 +317,21 @@ void codeChecker() {
   //code is correct
   if(strcmp(inputCode, totp.getCode(GMT)) == 0)
   {      
+    code_correct=true;
     Serial.println("Using the current code!");
-    openSolenoid();
+    //openSolenoid();
   }
 
   else if(strcmp(inputCode, totp.getCode(pre)) == 0) {
+    code_correct=true;
     Serial.println("Using the previous code!");
-    openSolenoid();
+    //openSolenoid();
   }
 
   else if(strcmp(inputCode, totp.getCode(post)) == 0) {
+    code_correct=true;
     Serial.println("Using the coming code!");
-    openSolenoid();
+    //openSolenoid();
   }
 
   //code is not correct
@@ -309,7 +340,32 @@ void codeChecker() {
     Serial.println();
     blinkStart = millis();
     blin2 = true;
-  } 
+  }
+
+  if (code_correct) {
+    if (!change_mode) openSolenoid();
+    else {
+      //we're in change mode.
+      verified_change_mode=true; 
+    }
+  }
+}
+
+void setNewKey() {
+
+  //new key is in an array (null terminated), inputKey.
+
+  //somehow convert key to correct format, uint8_t hmacKey
+
+  totp = TOTP(hmacKey, 10); 
+
+  //can use web app to convert to 32-bit encoding for google authenticator. (provide link in instructions.)
+
+  //that's it, everything should function as normal.
+  //now reset lights and back to entering a code, checking based on new key.
+
+  
+  
 }
 
 
