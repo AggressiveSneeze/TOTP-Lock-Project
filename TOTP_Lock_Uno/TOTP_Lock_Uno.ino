@@ -86,6 +86,7 @@ long blinkInterval = 100;           // interval at which to blink (milliseconds)
 long blinkLength = 1000;            // length of the blink signal (in milliseconds). must be longer than blinkInterval, should be a multiple of it.
 long solenoidLength = 2000;         // length the solenoid remains open (in milliseconds)
 long delayBeforeReset = 4000;       // length of time after last keypress before inputbuffer will reset.
+long changeModeTimeOut=100000;
 uint8_t hmacKey[] = {0x4d, 0x79, 0x4c, 0x65, 0x67, 0x6f, 0x44, 0x6f, 0x6f, 0x72};  // shared secret is "MyLegoDoor" in HEX.
 // NB the uint8_t constant will be a variable later
 
@@ -159,7 +160,7 @@ void loop() {
     kpDelayHandler();
     blinkHandler();
     solenoidHandler();
-
+    changeModeTimer();
     //TODO need to add handler to reset timer/change_mode.
 
     //TODO need to worry about LEDs for change_mode.
@@ -208,7 +209,8 @@ void keypadEvent(KeypadEvent key){    // handler for the Keypad
           Serial.println("Change password mode entered, please enter the OTP");
           change_mode=true;
           change_mode_timer=millis();
-        default: // all other keys than *
+          break;
+        default: // all other keys than * and #
           if (!blin2 && !solenoidOpen) {
             //changes yellow to on/off.
             digitalWrite(ledPinY,!digitalRead(ledPinY));
@@ -223,10 +225,12 @@ void keypadEvent(KeypadEvent key){    // handler for the Keypad
               }
             }
             else {
-              //we're in change mode here. let's try get a 10 digit key:
+              Serial.println("here we are" );
+              //we're in verified change mode here. let's try get a 10 digit key:
               inputKey[inputKey_idx++] = key;  //save key value in input buffer
               // if the buffer is full, add string terminator, reset the index, then call codeChecker
-              if(inputCode_idx == 10) {
+              if(inputKey_idx == 10) {
+                
                 inputCode[inputCode_idx] = '\0';
                 inputCode_idx = 0;
                 //set up new key now:
@@ -340,12 +344,15 @@ void codeChecker() {
     Serial.println();
     blinkStart = millis();
     blin2 = true;
+    change_mode=false;
+    verified_change_mode=false;
   }
 
   if (code_correct) {
     if (!change_mode) openSolenoid();
     else {
       //we're in change mode.
+      Serial.println("We're now in verified change mode!");
       verified_change_mode=true; 
     }
   }
@@ -356,8 +363,8 @@ void setNewKey() {
   //new key is in an array (null terminated), inputKey.
 
   //somehow convert key to correct format, uint8_t hmacKey
-
-  totp = TOTP(hmacKey, 10); 
+  Serial.println("Setting new Key.");
+  //totp = TOTP(hmacKey, 10); 
 
   //can use web app to convert to 32-bit encoding for google authenticator. (provide link in instructions.)
 
@@ -383,5 +390,17 @@ void kpDelayHandler() {  // monitor last time a key was pressed. Reset if too lo
     inputCode_idx = 0;
     blinkStart = millis();
     blin2 = true;
+  }
+}
+
+
+void changeModeTimer() {
+  if (change_mode){
+    if(currentMillis - change_mode_timer > changeModeTimeOut) {   
+      change_mode=false;
+      verified_change_mode=false;
+      Serial.println("Change mode deactivated");
+      Serial.println();
+    }
   }
 }
